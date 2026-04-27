@@ -5,6 +5,7 @@
  *   - ship-fast:       Prioritize latency and health
  *   - cost-saver:      Prioritize cost efficiency
  *   - quality-first:   Prioritize task fitness and stability
+ *   - reasoning:       Prioritize task fitness, ignore latency (reasoning models are slow)
  *   - offline-friendly: Prioritize quota availability
  */
 
@@ -39,6 +40,16 @@ export const MODE_PACKS: Record<string, ScoringWeights> = {
     latencyInv: 0.05,
     taskFit: 0.4,
     stability: 0.15,
+    tierPriority: 0.05,
+  },
+  // Prioritize reasoning capability + cost awareness. Latency is irrelevant for reasoning tasks.
+  reasoning: {
+    quota: 0.2,
+    health: 0.15,
+    costInv: 0.15,
+    latencyInv: 0.0,
+    taskFit: 0.35,
+    stability: 0.1,
     tierPriority: 0.05,
   },
   // Prioritize quota availability. tierPriority replaces 0.05 from taskFit.

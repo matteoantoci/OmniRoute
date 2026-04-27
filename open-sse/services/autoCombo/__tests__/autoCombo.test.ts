@@ -130,7 +130,7 @@ describe("Self-Healing", () => {
 
 describe("Mode Packs", () => {
   it("should have 4 mode packs", () => {
-    expect(getModePackNames()).toHaveLength(4);
+    expect(getModePackNames()).toHaveLength(5);
   });
 
   it("all mode pack weights should sum to 1.0", () => {
