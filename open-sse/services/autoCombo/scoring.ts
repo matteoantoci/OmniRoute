@@ -1,13 +1,14 @@
 /**
  * Auto-Combo Scoring Function
  *
- * Calculates a weighted score for each provider candidate based on 6 factors:
- *   1. Quota        (0.20) — residual capacity [0..1]
- *   2. Health       (0.25) — circuit breaker state
- *   3. CostInv      (0.20) — inverse cost normalized to pool
- *   4. LatencyInv   (0.15) — inverse p95 latency normalized to pool
- *   5. TaskFit      (0.10) — model × taskType fitness score
- *   6. Stability    (0.10) — variance-based prediction of consistency
+ * Calculates a weighted score for each provider candidate based on 7 factors:
+ *   1. TaskFit      (0.35) — model × taskType fitness score (quality first)
+ *   2. Health       (0.20) — circuit breaker state
+ *   3. Quota        (0.15) — residual capacity [0..1]
+ *   4. CostInv      (0.15) — inverse cost normalized to pool
+ *   5. LatencyInv   (0.05) — inverse p95 latency normalized to pool
+ *   6. Stability    (0.05) — variance-based prediction of consistency
+ *   7. TierPriority (0.05) — account tier boost (Ultra > Pro > Free)
  */
 
 export interface ScoringFactors {
@@ -30,13 +31,13 @@ export interface ScoringWeights {
   tierPriority: number; // T10
 }
 
-// T10: Rebalanced — stability 0.10→0.05, tierPriority 0.05 added. Sum = 1.0.
+// T11: Rebalanced — taskFit 0.10→0.35 (quality first), cost/quota/latency reduced.
 export const DEFAULT_WEIGHTS: ScoringWeights = {
-  quota: 0.2,
-  health: 0.25,
-  costInv: 0.2,
-  latencyInv: 0.15,
-  taskFit: 0.1,
+  taskFit: 0.35,
+  health: 0.2,
+  quota: 0.15,
+  costInv: 0.15,
+  latencyInv: 0.05,
   stability: 0.05,
   tierPriority: 0.05,
 };

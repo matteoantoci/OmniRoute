@@ -32,11 +32,11 @@ export type IntelligentProviderScore = {
 };
 
 export const DEFAULT_INTELLIGENT_WEIGHTS: IntelligentRoutingWeights = {
-  quota: 0.2,
-  health: 0.25,
-  costInv: 0.2,
-  latencyInv: 0.15,
-  taskFit: 0.1,
+  taskFit: 0.35,
+  health: 0.2,
+  quota: 0.15,
+  costInv: 0.15,
+  latencyInv: 0.05,
   stability: 0.05,
   tierPriority: 0.05,
 };

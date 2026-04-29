@@ -163,22 +163,23 @@ const FITNESS_TABLE: Record<string, Record<string, number>> = {
   },
   planning: {
     // ── AA Intelligence Index v4.0 (Apr 2026) ────────────────────────────
+    // Differentiated by omniscience: hallucination-prone models penalized.
     "gpt-5.5": 0.95, // AA Intelligence #1 (60)
     "claude-opus-4.7": 0.93, // AA Intelligence #2 (57)
     "claude-opus-4-7": 0.93,
     "gemini-3.1-pro": 0.93, // AA Intelligence #2 (57)
     "gemini-3-pro": 0.93,
     "gpt-5.4": 0.93, // AA Intelligence #2 (57)
-    "kimi-k2.6": 0.88, // AA Intelligence #5 (54)
-    "mimo-v2.5-pro": 0.88, // AA Intelligence #5 (54)
-    "mimo-v2-5-pro": 0.88,
+    "kimi-k2.6": 0.90, // AA Intelligence #5 (54) — boosted: high omniscience (+6)
+    "mimo-v2.5-pro": 0.86, // AA Intelligence #5 (54) — lowered: moderate omniscience (4)
+    "mimo-v2-5-pro": 0.86,
     "muse-spark": 0.86, // AA Intelligence #7 (52)
-    "qwen3.6": 0.86, // AA Intelligence #7 (52)
+    "qwen3.6": 0.89, // AA Intelligence #7 (52) — boosted: best omniscience (+10)
     "claude-sonnet-4.6": 0.86, // AA Intelligence #7 (52)
     "claude-sonnet-4-6": 0.86,
-    "deepseek-v4-pro": 0.86, // AA Intelligence #7 (52)
-    "deepseek-v4-flash": 0.8, // AA Intelligence #15 (47) — before deepseek-v4
-    "deepseek-v4": 0.86,
+    "deepseek-v4-pro": 0.75, // AA Intelligence #7 (52) — punished: severe omniscience deficit (-10)
+    "deepseek-v4-flash": 0.8, // AA Intelligence #15 (47)
+    "deepseek-v4": 0.75,
     "glm-5.1": 0.84, // AA Intelligence #11 (51)
     "minimax-m2.7": 0.83, // AA Intelligence #12 (50)
     "grok-4.2": 0.82, // AA Intelligence #13 (49)
@@ -563,9 +564,10 @@ export function getTaskFitness(model: string, taskType: string): number {
   const normalizedTask = taskType.toLowerCase();
   const table = FITNESS_TABLE[normalizedTask] || FITNESS_TABLE.default;
 
-  // Direct match — first match wins (version-specific entries must be listed first)
-  for (const [pattern, score] of Object.entries(table)) {
-    if (normalizedModel.includes(pattern)) return score;
+  // Direct match — longer (more specific) patterns checked first
+  const sortedPatterns = Object.keys(table).sort((a, b) => b.length - a.length);
+  for (const pattern of sortedPatterns) {
+    if (normalizedModel.includes(pattern)) return table[pattern];
   }
 
   // Wildcard boost
