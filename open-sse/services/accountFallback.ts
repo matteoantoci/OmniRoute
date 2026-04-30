@@ -1015,10 +1015,10 @@ export function checkFallbackError(
     }
   }
 
-  const configuredRule =
-    isRateLimitStatus && !preserveQuota429
-      ? matchErrorRuleByStatus(status)
-      : findMatchingErrorRule(status, errorStr);
+  // Always check text rules first — ERROR_RULES order ensures temporary rate limits
+  // ("rate limit", "too many requests") match before quota exhaustion ("quota exceeded").
+  // This correctly classifies "Subscription quota exceeded" as 1h cooldown even on 429.
+  const configuredRule = findMatchingErrorRule(status, errorStr);
   if (configuredRule) {
     if (configuredRule.backoff) {
       return buildRetryableFallback(configuredRule.reason ?? classifyError(status, errorStr));
