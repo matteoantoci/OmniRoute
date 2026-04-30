@@ -42,7 +42,6 @@ import {
   recordConversationModel,
 } from "./routerly/memory/conversationMemory";
 import { RoutingTraceCollector } from "./routerly/trace/collector";
-import { recordProviderUsage } from "./autoCombo/providerDiversity";
 import { computeBlendedCost } from "./routerly/scoring/costBlended";
 import {
   getModelHealthScore,
@@ -1663,7 +1662,6 @@ export async function handleComboChat({
         recordedAttempts++;
 
         recordConversationModel(relayOptions?.sessionId || "", modelStr, provider, sessionEffectiveTier as any);
-        recordProviderUsage(provider);
         recordModelSuccess(provider, parseModel(modelStr).model);
 
         // Context-relay intentionally splits responsibilities:

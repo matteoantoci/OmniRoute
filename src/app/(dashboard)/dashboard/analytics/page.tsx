@@ -5,7 +5,6 @@ import { UsageAnalytics, CardSkeleton, SegmentedControl } from "@/shared/compone
 import EvalsTab from "../usage/components/EvalsTab";
 import SearchAnalyticsTab from "./SearchAnalyticsTab";
 import CompressionAnalyticsTab from "./CompressionAnalyticsTab";
-import DiversityScoreCard from "./components/DiversityScoreCard";
 import ProviderUtilizationTab from "./ProviderUtilizationTab";
 import ComboHealthTab from "./ComboHealthTab";
 import { useTranslations } from "next-intl";
@@ -52,7 +51,6 @@ export default function AnalyticsPage() {
           <Suspense fallback={<CardSkeleton />}>
             <UsageAnalytics />
           </Suspense>
-          <DiversityScoreCard />
         </>
       )}
       {activeTab === "evals" && <EvalsTab />}

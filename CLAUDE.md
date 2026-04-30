@@ -168,7 +168,6 @@ Locally-added routing improvements in `open-sse/services/routerly/`. Each featur
 | Bayesian health         | `routerly/health/bayesian`           | `ROUTERLY_BAYESIAN_HEALTH`     | `circuitBreaker.ts`, `autoCombo/scoring.ts`, `combo.ts` |
 | Routing trace           | `routerly/trace/collector`           | `ROUTERLY_ROUTING_TRACE`       | `combo.ts`, `utils/stream.ts`                           |
 | Conversation memory     | `routerly/memory/conversationMemory` | `ROUTERLY_CONVERSATION_MEMORY` | `combo.ts`                                              |
-| Provider diversity      | `routerly/scoring/diversity`         | `ROUTERLY_DIVERSITY`           | `autoCombo/scoring.ts`, `services/combo.ts`             |
 | Conversation stickiness | `routerly/scoring/stickiness`        | `ROUTERLY_STICKINESS`          | `autoCombo/scoring.ts`                                  |
 | Output cost awareness   | `routerly/scoring/costBlended`       | `ROUTERLY_BLENDED_COST`        | `services/combo.ts`                                     |
 | Per-model health        | `routerly/health/perModelHealth`     | `ROUTERLY_PER_MODEL_HEALTH`    | `services/combo.ts`, `handlers/chatCore.ts`             |

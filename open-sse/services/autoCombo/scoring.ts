@@ -1,20 +1,18 @@
 import { redistributeWeights } from "../routerly/scoring/abstention";
-import { getDiversityFactor } from "../routerly/scoring/diversity";
 import { getStickinessFactor } from "../routerly/scoring/stickiness";
 
 /**
  * Auto-Combo Scoring Function
  *
- * Calculates a weighted score for each provider candidate based on 9 factors:
- *   1. TaskFit      (0.30) — model × taskType fitness score (quality first)
+ * Calculates a weighted score for each provider candidate based on 8 factors:
+ *   1. TaskFit      (0.35) — model × taskType fitness score (quality first)
  *   2. Health       (0.15) — circuit breaker state (per-model when available)
  *   3. Quota        (0.05) — residual capacity [0..1]
  *   4. CostInv      (0.15) — inverse cost normalized to pool (output-aware)
  *   5. LatencyInv   (0.05) — inverse p95 latency normalized to pool (TTFT-corrected)
  *   6. Stability    (0.05) — latency variance + error rate
  *   7. TierPriority (0.05) — account tier boost (Ultra > Pro > Free)
- *   8. Diversity    (0.10) — underrepresented providers get a boost
- *   9. Stickiness   (0.10) — prefer same model in multi-turn sessions
+ *   8. Stickiness   (0.15) — prefer same model in multi-turn sessions
  */
 
 export interface ScoringFactors {
@@ -25,7 +23,6 @@ export interface ScoringFactors {
   taskFit: number;
   stability: number;
   tierPriority: number;
-  diversity: number;
   stickiness: number;
 }
 
@@ -37,22 +34,20 @@ export interface ScoringWeights {
   taskFit: number;
   stability: number;
   tierPriority: number;
-  diversity: number;
   stickiness: number;
 }
 
-// Phase 2: 9-factor rebalance — added diversity (0.10) and stickiness (0.10),
-// reduced taskFit/health/quota to fund them.
+// Phase 3: 8-factor — removed diversity (conflicts with stickiness for 3rd-party APIs),
+// redistributed 0.05 each to taskFit and stickiness.
 export const DEFAULT_WEIGHTS: ScoringWeights = {
-  taskFit: 0.3,
+  taskFit: 0.35,
   health: 0.15,
   quota: 0.05,
   costInv: 0.15,
   latencyInv: 0.05,
   stability: 0.05,
   tierPriority: 0.05,
-  diversity: 0.1,
-  stickiness: 0.1,
+  stickiness: 0.15,
 };
 
 export interface ProviderCandidate {
@@ -92,7 +87,6 @@ export function calculateScore(factors: ScoringFactors, weights: ScoringWeights)
     weights.taskFit * factors.taskFit +
     weights.stability * factors.stability +
     weights.tierPriority * factors.tierPriority +
-    weights.diversity * factors.diversity +
     weights.stickiness * factors.stickiness
   );
 }
@@ -165,7 +159,6 @@ export function calculateFactors(
     taskFit: getTaskFitness(candidate.model, taskType),
     stability,
     tierPriority: calculateTierScore(candidate.accountTier, candidate.quotaResetIntervalSecs),
-    diversity: getDiversityFactor(candidate.provider),
     stickiness: sessionId ? getStickinessFactor(sessionId, candidate.provider, candidate.model) : 0,
   };
 }

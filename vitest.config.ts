@@ -19,7 +19,6 @@ export default defineConfig({
     exclude: [
       "**/node_modules/**",
       "**/.git/**",
-      "open-sse/services/autoCombo/__tests__/providerDiversity.test.ts",
     ],
     coverage: {
       reportsDirectory: "coverage",
