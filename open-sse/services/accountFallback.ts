@@ -93,8 +93,6 @@ export const CREDITS_EXHAUSTED_SIGNALS = [
   "credits exhausted",
   "out of credits",
   "payment required",
-  "subscription quota exceeded",
-  "you can continue using free models",
 ];
 
 // T11: Signals that indicate OAuth token is invalid/expired (not permanent deactivation)
@@ -969,10 +967,10 @@ export function checkFallbackError(
   }
 
   const isRateLimitStatus = status === HTTP_STATUS.RATE_LIMITED;
+  const preserveQuota429 = shouldPreserveQuotaSignalsFor429(provider);
+  const shouldUseQuotaSignal = !isRateLimitStatus || preserveQuota429;
 
-  // Check error message FIRST - specific patterns take priority over status codes.
-  // Credits exhaustion and daily quota signals are specific enough to be safe even
-  // for 429 responses — they won't match temporary rate limits like "rate limit exceeded".
+  // Check error message FIRST - specific patterns take priority over status codes
   if (errorText) {
     // T06 (sub2api #1037): Permanent account deactivation — do NOT retry, mark as permanent failure
     if (isAccountDeactivated(errorStr)) {
@@ -985,7 +983,7 @@ export function checkFallbackError(
     }
 
     // T10 (sub2api #1169): Credits/quota exhausted — long cooldown, distinct from rate limit
-    if (isCreditsExhausted(errorStr)) {
+    if (shouldUseQuotaSignal && isCreditsExhausted(errorStr)) {
       return {
         shouldFallback: true,
         cooldownMs: COOLDOWN_MS.paymentRequired ?? 3600 * 1000, // 1h cooldown
@@ -995,7 +993,7 @@ export function checkFallbackError(
     }
 
     // Daily quota exhausted — lock model until tomorrow
-    if (isDailyQuotaExhausted(errorStr)) {
+    if (shouldUseQuotaSignal && isDailyQuotaExhausted(errorStr)) {
       const msUntilTomorrow = getMsUntilTomorrow();
       // Cap at 24 hours to handle timezone edge cases
       const cooldownMs = Math.min(msUntilTomorrow, 24 * 60 * 60 * 1000);
@@ -1017,9 +1015,10 @@ export function checkFallbackError(
     }
   }
 
-  const configuredRule = isRateLimitStatus
-    ? matchErrorRuleByStatus(status)
-    : findMatchingErrorRule(status, errorStr);
+  const configuredRule =
+    isRateLimitStatus && !preserveQuota429
+      ? matchErrorRuleByStatus(status)
+      : findMatchingErrorRule(status, errorStr);
   if (configuredRule) {
     if (configuredRule.backoff) {
       return buildRetryableFallback(configuredRule.reason ?? classifyError(status, errorStr));
