@@ -11,6 +11,7 @@ export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 600_000;
 export const DEFAULT_STREAM_FIRST_CONTENT_TIMEOUT_MS = 60_000;
 export const DEFAULT_FETCH_CONNECT_TIMEOUT_MS = 30_000;
 export const DEFAULT_FETCH_KEEPALIVE_TIMEOUT_MS = 4_000;
+export const DEFAULT_STREAM_MAX_DURATION_MS = 1_800_000;
 export const DEFAULT_API_BRIDGE_PROXY_TIMEOUT_MS = 30_000;
 export const DEFAULT_API_BRIDGE_SERVER_REQUEST_TIMEOUT_MS = 300_000;
 export const DEFAULT_API_BRIDGE_SERVER_HEADERS_TIMEOUT_MS = 60_000;
@@ -26,6 +27,7 @@ export type UpstreamTimeoutConfig = {
   fetchTimeoutMs: number;
   streamIdleTimeoutMs: number;
   streamFirstContentTimeoutMs: number;
+  streamMaxDurationMs: number;
   fetchHeadersTimeoutMs: number;
   fetchBodyTimeoutMs: number;
   fetchConnectTimeoutMs: number;
@@ -105,6 +107,12 @@ export function getUpstreamTimeoutConfig(
     fetchTimeoutMs,
     streamIdleTimeoutMs,
     streamFirstContentTimeoutMs,
+    streamMaxDurationMs: readTimeoutMs(
+      env,
+      "STREAM_MAX_DURATION_MS",
+      DEFAULT_STREAM_MAX_DURATION_MS,
+      { allowZero: true, logger }
+    ),
     fetchHeadersTimeoutMs: readTimeoutMs(env, "FETCH_HEADERS_TIMEOUT_MS", fetchTimeoutMs, {
       allowZero: true,
       logger,

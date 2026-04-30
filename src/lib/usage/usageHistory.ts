@@ -163,6 +163,8 @@ export function trackPendingRequest(
   if (!isSafeKey(modelKey)) return;
   const normalizedMetadata = normalizePendingMetadata(metadata);
 
+  if (started) startStaleCleanup();
+
   // Use hasOwnProperty guard to prevent prototype pollution via crafted keys
   if (!Object.prototype.hasOwnProperty.call(pendingRequests.byModel, modelKey)) {
     pendingRequests.byModel[modelKey] = 0;
@@ -250,6 +252,40 @@ export function clearPendingRequests() {
     string,
     Record<string, PendingRequestDetail>
   >;
+}
+
+const STALE_THRESHOLD_MS = 60 * 60 * 1_000; // 60 minutes
+let staleCleanupInterval: ReturnType<typeof setInterval> | null = null;
+
+function evictStalePendingRequests() {
+  const now = Date.now();
+  for (const connectionId of Object.keys(pendingRequests.details)) {
+    const models = pendingRequests.details[connectionId];
+    for (const modelKey of Object.keys(models)) {
+      const detail = models[modelKey];
+      if (now - detail.startedAt > STALE_THRESHOLD_MS) {
+        const count = pendingRequests.byAccount[connectionId]?.[modelKey] ?? 0;
+        if (count > 0) {
+          if (pendingRequests.byModel[modelKey]) {
+            pendingRequests.byModel[modelKey] = Math.max(0, pendingRequests.byModel[modelKey] - count);
+          }
+          if (pendingRequests.byAccount[connectionId]) {
+            pendingRequests.byAccount[connectionId][modelKey] = 0;
+          }
+        }
+        delete models[modelKey];
+      }
+    }
+    if (Object.keys(models).length === 0) {
+      delete pendingRequests.details[connectionId];
+    }
+  }
+}
+
+function startStaleCleanup() {
+  if (staleCleanupInterval) return;
+  staleCleanupInterval = setInterval(evictStalePendingRequests, 5 * 60 * 1_000);
+  staleCleanupInterval.unref?.();
 }
 
 // ──────────────── getUsageDb Shim (backward compat) ────────────────
