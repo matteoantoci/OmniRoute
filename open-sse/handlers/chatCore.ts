@@ -33,6 +33,7 @@ import {
   HTTP_STATUS,
   PROVIDER_MAX_TOKENS,
   STREAM_IDLE_TIMEOUT_MS,
+  STREAM_MAX_DURATION_MS,
 } from "../config/constants.ts";
 import {
   classifyProviderError,
@@ -2543,6 +2544,18 @@ export async function handleChatCore({
     clientRequest: clientRawRequest?.body ?? body,
   });
 
+  // Hard timeout — ensures trackPendingRequest is decremented even if fetch()
+  // hangs and the AbortSignal doesn't propagate (known Node.js/undici issue).
+  let hardTimeoutFired = false;
+  const hardTimeoutId = STREAM_MAX_DURATION_MS > 0
+    ? setTimeout(() => {
+        hardTimeoutFired = true;
+        console.warn(`[HARD-TIMEOUT] Request to ${provider}/${model} exceeded ${STREAM_MAX_DURATION_MS}ms — force cleaning up`);
+        streamController.abort();
+        trackPendingRequest(model, provider, connectionId, false);
+      }, STREAM_MAX_DURATION_MS)
+    : null;
+
   // T5: track which models we've tried for intra-family fallback
   const triedModels = new Set<string>([effectiveModel]);
   let currentModel = effectiveModel;
@@ -2593,7 +2606,8 @@ export async function handleChatCore({
       model
     );
   } catch (error) {
-    trackPendingRequest(model, provider, connectionId, false);
+    if (hardTimeoutId) clearTimeout(hardTimeoutId);
+    if (!hardTimeoutFired) trackPendingRequest(model, provider, connectionId, false);
     if (isSemaphoreTimeoutError(error)) {
       appendRequestLog({
         model,
@@ -2747,7 +2761,8 @@ export async function handleChatCore({
 
   // Check provider response - return error info for fallback handling
   if (!providerResponse.ok) {
-    trackPendingRequest(model, provider, connectionId, false);
+    if (hardTimeoutId) clearTimeout(hardTimeoutId);
+    if (!hardTimeoutFired) trackPendingRequest(model, provider, connectionId, false);
 
     let statusCode = providerResponse.status;
     let message = "";
@@ -3106,7 +3121,8 @@ export async function handleChatCore({
 
   // Non-streaming response
   if (!stream) {
-    trackPendingRequest(model, provider, connectionId, false);
+    if (hardTimeoutId) clearTimeout(hardTimeoutId);
+    if (!hardTimeoutFired) trackPendingRequest(model, provider, connectionId, false);
     const contentType = (providerResponse.headers.get("content-type") || "").toLowerCase();
     let responseBody;
     let responsePayloadFormat = targetFormat;
@@ -3547,7 +3563,8 @@ export async function handleChatCore({
       code: "stream_readiness_timeout",
       type: "stream_timeout",
     };
-    trackPendingRequest(model, provider, connectionId, false);
+    if (hardTimeoutId) clearTimeout(hardTimeoutId);
+    if (!hardTimeoutFired) trackPendingRequest(model, provider, connectionId, false);
     appendRequestLog({
       model,
       provider,
@@ -3612,6 +3629,7 @@ export async function handleChatCore({
     clientPayload,
     ttft,
   }) => {
+    if (hardTimeoutId) clearTimeout(hardTimeoutId);
     const cacheUsageLogMeta = buildCacheUsageLogMeta(streamUsage);
 
     if (streamStatus === 200) {
