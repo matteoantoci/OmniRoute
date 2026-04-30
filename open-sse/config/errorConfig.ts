@@ -63,7 +63,7 @@ export const TRANSIENT_COOLDOWN_MS = 5 * 1000;
 // Cooldown durations (ms)
 export const COOLDOWN_MS = {
   unauthorized: 2 * 60 * 1000,
-  paymentRequired: 2 * 60 * 1000,
+  paymentRequired: 3600 * 1000,
   notFound: 2 * 60 * 1000,
   notFoundLocal: 5 * 1000,
   transientInitial: TRANSIENT_COOLDOWN_MS,
