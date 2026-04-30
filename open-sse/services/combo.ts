@@ -41,6 +41,15 @@ import {
   recordConversationModel,
 } from "./routerly/memory/conversationMemory";
 import { RoutingTraceCollector } from "./routerly/trace/collector";
+import { recordProviderUsage } from "./autoCombo/providerDiversity";
+import { computeBlendedCost } from "./routerly/scoring/costBlended";
+import {
+  getModelHealthScore,
+  recordModelSuccess,
+  recordModelFailure,
+} from "./routerly/health/perModelHealth";
+import { recordTtft, getEstimatedTtft } from "./routerly/ttft/feedback";
+import { warmStartAdaptation, recordAdaptationDecision } from "./routerly/persistence/warmStart";
 
 let activeTraceCollector: RoutingTraceCollector | null = null;
 
@@ -797,8 +806,9 @@ async function buildAutoCandidates(targets, comboName) {
       try {
         const pricing = await getPricingForModel(provider, model);
         const inputPrice = Number(pricing?.input);
+        const outputPrice = Number(pricing?.output) || 0;
         if (Number.isFinite(inputPrice) && inputPrice >= 0) {
-          costPer1MTokens = inputPrice;
+          costPer1MTokens = computeBlendedCost(inputPrice, outputPrice);
         }
       } catch {
         // keep default cost
@@ -811,13 +821,18 @@ async function buildAutoCandidates(targets, comboName) {
       const historicalStdDev = Number(historicalModelMetric?.latencyStdDev);
       const historicalSuccessRate = Number(historicalModelMetric?.successRate); // 0..1
 
-      const p95LatencyMs = hasHistoricalSignal
+      let p95LatencyMs = hasHistoricalSignal
         ? Number.isFinite(historicalP95Latency) && historicalP95Latency > 0
           ? historicalP95Latency
           : getBootstrapLatencyMs(model)
         : Number.isFinite(avgLatency) && avgLatency > 0
           ? avgLatency
           : getBootstrapLatencyMs(model);
+
+      const ttftEstimate = getEstimatedTtft(provider, model);
+      if (ttftEstimate !== null) {
+        p95LatencyMs = (p95LatencyMs + ttftEstimate) / 2;
+      }
 
       const errorRate = hasHistoricalSignal
         ? Number.isFinite(historicalSuccessRate) &&
@@ -836,7 +851,10 @@ async function buildAutoCandidates(targets, comboName) {
       const breakerStateRaw = getCircuitBreaker(provider)?.getStatus?.()?.state;
       const circuitBreakerState =
         breakerStateRaw === "OPEN" || breakerStateRaw === "HALF_OPEN" ? breakerStateRaw : "CLOSED";
-      const healthScore = getCircuitBreaker(provider)?.getHealthScore?.();
+      const healthScore =
+        getModelHealthScore(provider, model) ??
+        getCircuitBreaker(provider)?.getHealthScore?.() ??
+        undefined;
 
       return {
         stepId: target.stepId,
@@ -1049,6 +1067,7 @@ export async function handleComboChat({
   signal,
 }) {
   const strategy = combo.strategy || "priority";
+  warmStartAdaptation();
   const traceCollector = new RoutingTraceCollector(
     `combo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   );
@@ -1364,7 +1383,12 @@ export async function handleComboChat({
         try {
           const decision = selectWithStrategy(
             candidates,
-            { taskType, requestHasTools, lastKnownGoodProvider },
+            {
+              taskType,
+              requestHasTools,
+              lastKnownGoodProvider,
+              sessionId: relayOptions?.sessionId || undefined,
+            },
             routingStrategy
           );
           selectedProvider = decision.provider;
@@ -1391,7 +1415,9 @@ export async function handleComboChat({
             explorationRate,
           },
           candidates,
-          taskType
+          taskType,
+          undefined,
+          relayOptions?.sessionId || undefined
         );
         selectedProvider = selection.provider;
         selectedModel = selection.model;
@@ -1600,6 +1626,8 @@ export async function handleComboChat({
         recordedAttempts++;
 
         recordConversationModel(relayOptions?.sessionId || "", modelStr, provider);
+        recordProviderUsage(provider);
+        recordModelSuccess(provider, parseModel(modelStr).model);
 
         // Context-relay intentionally splits responsibilities:
         // combo.ts decides whether a successful turn should generate a handoff,

@@ -57,7 +57,8 @@ export function selectProvider(
   config: AutoComboConfig,
   candidates: ProviderCandidate[],
   taskType: string = "default",
-  promptMessages?: Array<{ role: string; content: unknown }>
+  promptMessages?: Array<{ role: string; content: unknown }>,
+  sessionId?: string
 ): SelectionResult {
   const healer = getSelfHealingManager();
 
@@ -114,7 +115,7 @@ export function selectProvider(
   }
 
   // Score all providers (using classified intent if available)
-  const scored = scorePool(pool, effectiveTaskType, weights, getTaskFitness);
+  const scored = scorePool(pool, effectiveTaskType, weights, getTaskFitness, sessionId);
 
   // Apply self-healing re-evaluation with actual scores
   const finalCandidates = scored.filter((s) => {

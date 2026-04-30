@@ -18,6 +18,7 @@ export interface RoutingContext {
   estimatedInputTokens?: number;
   lastKnownGoodProvider?: string;
   lkgpEnabled?: boolean;
+  sessionId?: string;
 }
 
 export interface RoutingDecision {
@@ -48,7 +49,8 @@ class RulesStrategyImpl implements RouterStrategy {
       eligible.length > 0 ? eligible : pool,
       context.taskType,
       undefined,
-      getTaskFitness
+      getTaskFitness,
+      context.sessionId
     );
     const best = ranked[0];
     if (!best) throw new Error("[RulesStrategy] No candidates to score");

@@ -1,16 +1,20 @@
 import { redistributeWeights } from "../routerly/scoring/abstention";
+import { getDiversityFactor } from "../routerly/scoring/diversity";
+import { getStickinessFactor } from "../routerly/scoring/stickiness";
 
 /**
  * Auto-Combo Scoring Function
  *
- * Calculates a weighted score for each provider candidate based on 7 factors:
- *   1. TaskFit      (0.35) — model × taskType fitness score (quality first)
- *   2. Health       (0.20) — circuit breaker state
- *   3. Quota        (0.15) — residual capacity [0..1]
- *   4. CostInv      (0.15) — inverse cost normalized to pool
- *   5. LatencyInv   (0.05) — inverse p95 latency normalized to pool
- *   6. Stability    (0.05) — variance-based prediction of consistency
+ * Calculates a weighted score for each provider candidate based on 9 factors:
+ *   1. TaskFit      (0.30) — model × taskType fitness score (quality first)
+ *   2. Health       (0.15) — circuit breaker state (per-model when available)
+ *   3. Quota        (0.05) — residual capacity [0..1]
+ *   4. CostInv      (0.15) — inverse cost normalized to pool (output-aware)
+ *   5. LatencyInv   (0.05) — inverse p95 latency normalized to pool (TTFT-corrected)
+ *   6. Stability    (0.05) — latency variance + error rate
  *   7. TierPriority (0.05) — account tier boost (Ultra > Pro > Free)
+ *   8. Diversity    (0.10) — underrepresented providers get a boost
+ *   9. Stickiness   (0.10) — prefer same model in multi-turn sessions
  */
 
 export interface ScoringFactors {
@@ -20,7 +24,9 @@ export interface ScoringFactors {
   latencyInv: number;
   taskFit: number;
   stability: number;
-  tierPriority: number; // T10: Ultra > Pro > Free account tier boost
+  tierPriority: number;
+  diversity: number;
+  stickiness: number;
 }
 
 export interface ScoringWeights {
@@ -30,18 +36,23 @@ export interface ScoringWeights {
   latencyInv: number;
   taskFit: number;
   stability: number;
-  tierPriority: number; // T10
+  tierPriority: number;
+  diversity: number;
+  stickiness: number;
 }
 
-// T11: Rebalanced — taskFit 0.10→0.35 (quality first), cost/quota/latency reduced.
+// Phase 2: 9-factor rebalance — added diversity (0.10) and stickiness (0.10),
+// reduced taskFit/health/quota to fund them.
 export const DEFAULT_WEIGHTS: ScoringWeights = {
-  taskFit: 0.35,
-  health: 0.2,
-  quota: 0.15,
+  taskFit: 0.3,
+  health: 0.15,
+  quota: 0.05,
   costInv: 0.15,
   latencyInv: 0.05,
   stability: 0.05,
   tierPriority: 0.05,
+  diversity: 0.1,
+  stickiness: 0.1,
 };
 
 export interface ProviderCandidate {
@@ -80,7 +91,9 @@ export function calculateScore(factors: ScoringFactors, weights: ScoringWeights)
     weights.latencyInv * factors.latencyInv +
     weights.taskFit * factors.taskFit +
     weights.stability * factors.stability +
-    weights.tierPriority * factors.tierPriority
+    weights.tierPriority * factors.tierPriority +
+    weights.diversity * factors.diversity +
+    weights.stickiness * factors.stickiness
   );
 }
 
@@ -123,12 +136,19 @@ export function calculateFactors(
   candidate: ProviderCandidate,
   pool: ProviderCandidate[],
   taskType: string,
-  getTaskFitness: (model: string, taskType: string) => number
+  getTaskFitness: (model: string, taskType: string) => number,
+  sessionId?: string
 ): ScoringFactors {
   // Pool-wide maximums for normalization
   const maxCost = Math.max(...pool.map((p) => p.costPer1MTokens), 0.001);
   const maxLatency = Math.max(...pool.map((p) => p.p95LatencyMs), 1);
   const maxStdDev = Math.max(...pool.map((p) => p.latencyStdDev), 0.001);
+
+  const latencyStability = 1 - candidate.latencyStdDev / maxStdDev;
+  const useEnhancedStability = process.env.ROUTERLY_ENHANCED_STABILITY !== "false";
+  const stability = useEnhancedStability
+    ? 0.5 * latencyStability + 0.5 * (1 - candidate.errorRate)
+    : latencyStability;
 
   return {
     quota: Math.min(1, candidate.quotaRemaining / 100),
@@ -143,8 +163,10 @@ export function calculateFactors(
     costInv: 1 - candidate.costPer1MTokens / maxCost,
     latencyInv: 1 - candidate.p95LatencyMs / maxLatency,
     taskFit: getTaskFitness(candidate.model, taskType),
-    stability: 1 - candidate.latencyStdDev / maxStdDev,
+    stability,
     tierPriority: calculateTierScore(candidate.accountTier, candidate.quotaResetIntervalSecs),
+    diversity: getDiversityFactor(candidate.provider),
+    stickiness: sessionId ? getStickinessFactor(sessionId, candidate.provider, candidate.model) : 0,
   };
 }
 
@@ -155,12 +177,13 @@ export function scorePool(
   pool: ProviderCandidate[],
   taskType: string,
   weights: ScoringWeights = DEFAULT_WEIGHTS,
-  getTaskFitness: (model: string, taskType: string) => number = () => 0.5
+  getTaskFitness: (model: string, taskType: string) => number = () => 0.5,
+  sessionId?: string
 ): ScoredProvider[] {
   const effectiveWeights = redistributeWeights(pool, weights);
   return pool
     .map((candidate) => {
-      const factors = calculateFactors(candidate, pool, taskType, getTaskFitness);
+      const factors = calculateFactors(candidate, pool, taskType, getTaskFitness, sessionId);
       return {
         provider: candidate.provider,
         model: candidate.model,

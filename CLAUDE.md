@@ -160,14 +160,21 @@ Locally-added routing improvements in `open-sse/services/routerly/`. Each featur
 
 **Discard all:** `git rm -r open-sse/services/routerly/` + remove imports from upstream files
 
-| Feature | Module | Env Var Toggle | Upstream Files Touched |
-|---------|--------|---------------|----------------------|
-| Policy abstention | `routerly/scoring/abstention` | `ROUTERLY_ABSTENTION` | `autoCombo/scoring.ts` |
-| TTFT measurement | `routerly/ttft/measure` | `ROUTERLY_TTFT` | `utils/stream.ts` |
-| Context pre-filter | `routerly/prefilter/contextFilter` | `ROUTERLY_CONTEXT_PREFILTER` | `services/combo.ts` |
-| Bayesian health | `routerly/health/bayesian` | `ROUTERLY_BAYESIAN_HEALTH` | `circuitBreaker.ts`, `autoCombo/scoring.ts`, `combo.ts` |
-| Routing trace | `routerly/trace/collector` | `ROUTERLY_ROUTING_TRACE` | `combo.ts`, `utils/stream.ts` |
-| Conversation memory | `routerly/memory/conversationMemory` | `ROUTERLY_CONVERSATION_MEMORY` | `combo.ts` |
+| Feature                 | Module                               | Env Var Toggle                 | Upstream Files Touched                                  |
+| ----------------------- | ------------------------------------ | ------------------------------ | ------------------------------------------------------- |
+| Policy abstention       | `routerly/scoring/abstention`        | `ROUTERLY_ABSTENTION`          | `autoCombo/scoring.ts`                                  |
+| TTFT measurement        | `routerly/ttft/measure`              | `ROUTERLY_TTFT`                | `utils/stream.ts`                                       |
+| Context pre-filter      | `routerly/prefilter/contextFilter`   | `ROUTERLY_CONTEXT_PREFILTER`   | `services/combo.ts`                                     |
+| Bayesian health         | `routerly/health/bayesian`           | `ROUTERLY_BAYESIAN_HEALTH`     | `circuitBreaker.ts`, `autoCombo/scoring.ts`, `combo.ts` |
+| Routing trace           | `routerly/trace/collector`           | `ROUTERLY_ROUTING_TRACE`       | `combo.ts`, `utils/stream.ts`                           |
+| Conversation memory     | `routerly/memory/conversationMemory` | `ROUTERLY_CONVERSATION_MEMORY` | `combo.ts`                                              |
+| Provider diversity      | `routerly/scoring/diversity`         | `ROUTERLY_DIVERSITY`           | `autoCombo/scoring.ts`, `services/combo.ts`             |
+| Conversation stickiness | `routerly/scoring/stickiness`        | `ROUTERLY_STICKINESS`          | `autoCombo/scoring.ts`                                  |
+| Output cost awareness   | `routerly/scoring/costBlended`       | `ROUTERLY_BLENDED_COST`        | `services/combo.ts`                                     |
+| Per-model health        | `routerly/health/perModelHealth`     | `ROUTERLY_PER_MODEL_HEALTH`    | `services/combo.ts`, `handlers/chatCore.ts`             |
+| Enhanced stability      | _(inline in scoring.ts)_             | `ROUTERLY_ENHANCED_STABILITY`  | `autoCombo/scoring.ts`                                  |
+| TTFT feedback loop      | `routerly/ttft/feedback`             | `ROUTERLY_TTFT_FEEDBACK`       | `services/combo.ts`, `handlers/chatCore.ts`             |
+| Adaptation persistence  | `routerly/persistence/warmStart`     | `ROUTERLY_ADAPTATION`          | `autoCombo/engine.ts`, `services/combo.ts`              |
 
 All env vars default to enabled (except `ROUTERLY_ROUTING_TRACE`). Set to `"false"` to disable.
 

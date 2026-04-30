@@ -12,55 +12,60 @@
 import type { ScoringWeights } from "./scoring";
 
 export const MODE_PACKS: Record<string, ScoringWeights> = {
-  // Prioritize latency → health. tierPriority replaces 0.05 from stability.
   "ship-fast": {
-    quota: 0.15,
-    health: 0.3,
+    quota: 0.1,
+    health: 0.25,
     costInv: 0.05,
     latencyInv: 0.35,
-    taskFit: 0.1,
+    taskFit: 0.05,
     stability: 0.0,
     tierPriority: 0.05,
+    diversity: 0.05,
+    stickiness: 0.1,
   },
-  // Prioritize cost. tierPriority replaces 0.05 from stability.
   "cost-saver": {
-    quota: 0.15,
-    health: 0.2,
+    quota: 0.1,
+    health: 0.15,
     costInv: 0.4,
     latencyInv: 0.05,
-    taskFit: 0.1,
+    taskFit: 0.05,
     stability: 0.05,
     tierPriority: 0.05,
+    diversity: 0.05,
+    stickiness: 0.1,
   },
-  // Prioritize task fitness. tierPriority replaces 0.05 from latencyInv.
   "quality-first": {
-    quota: 0.1,
-    health: 0.2,
+    quota: 0.05,
+    health: 0.15,
     costInv: 0.05,
     latencyInv: 0.05,
     taskFit: 0.4,
     stability: 0.15,
     tierPriority: 0.05,
+    diversity: 0.05,
+    stickiness: 0.05,
   },
-  // Prioritize reasoning capability + cost awareness. Latency is irrelevant for reasoning tasks.
   reasoning: {
-    quota: 0.2,
-    health: 0.15,
+    quota: 0.15,
+    health: 0.1,
     costInv: 0.15,
     latencyInv: 0.0,
     taskFit: 0.35,
     stability: 0.1,
     tierPriority: 0.05,
+    diversity: 0.05,
+    stickiness: 0.05,
   },
-  // Prioritize quota availability. tierPriority replaces 0.05 from taskFit.
   "offline-friendly": {
-    quota: 0.4,
-    health: 0.3,
+    quota: 0.35,
+    health: 0.25,
     costInv: 0.1,
     latencyInv: 0.05,
     taskFit: 0.0,
     stability: 0.1,
     tierPriority: 0.05,
+    diversity: 0.05,
+    stickiness: 0.05,
   },
 };
 

@@ -9,6 +9,8 @@ import {
   withBodyTimeout,
 } from "../utils/stream.ts";
 import { ensureStreamReadiness } from "../utils/streamReadiness.ts";
+import { recordModelSuccess, recordModelFailure } from "../services/routerly/health/perModelHealth";
+import { recordTtft as recordTtftFeedback } from "../services/routerly/ttft/feedback";
 import { createStreamController, pipeWithDisconnect } from "../utils/streamHandler.ts";
 import { addBufferToUsage, filterUsageForFormat, estimateUsage } from "../utils/usageTracking.ts";
 import { refreshWithRetry } from "../services/tokenRefresh.ts";
@@ -3684,6 +3686,17 @@ export async function handleChatCore({
       claudeCacheUsageMeta: cacheUsageLogMeta,
       cacheSource: "upstream",
     });
+
+    if (provider && model) {
+      if (streamStatus === 200) {
+        recordModelSuccess(provider, model);
+      } else {
+        recordModelFailure(provider, model);
+      }
+      if (ttft != null) {
+        recordTtftFeedback(provider, model, ttft);
+      }
+    }
 
     if (apiKeyInfo?.id && streamUsage) {
       calculateCost(provider, model, streamUsage)
