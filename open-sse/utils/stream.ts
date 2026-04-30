@@ -1,6 +1,9 @@
 import { translateResponse, initState } from "../translator/index.ts";
 import { FORMATS } from "../translator/formats.ts";
 import { trackPendingRequest, appendRequestLog } from "@/lib/usageDb";
+import { createTtftTracker } from "../services/routerly/ttft/measure";
+import type { RoutingTraceCollector } from "../services/routerly/trace/collector";
+import { getActiveTraceCollector } from "../services/combo";
 import {
   extractUsage,
   hasValidUsage,
@@ -120,6 +123,7 @@ type StreamCompletePayload = {
   responseBody?: unknown;
   providerPayload?: unknown;
   clientPayload?: unknown;
+  ttft?: number | null;
 };
 
 type StreamFailurePayload = {
@@ -143,6 +147,7 @@ type StreamOptions = {
   body?: unknown;
   onComplete?: ((payload: StreamCompletePayload) => void) | null;
   onFailure?: ((payload: StreamFailurePayload) => void | Promise<void>) | null;
+  routingTraceCollector?: RoutingTraceCollector | null;
 };
 
 type TranslateState = ReturnType<typeof initState> & {
@@ -540,6 +545,7 @@ export function createSSEStream(options: StreamOptions = {}) {
     body = null,
     onComplete = null,
     onFailure = null,
+    routingTraceCollector = null,
   } = options;
 
   const clientExpectsResponsesStream =
@@ -581,6 +587,8 @@ export function createSSEStream(options: StreamOptions = {}) {
   let passthroughResponsesCurrentFunctionCallKey: string | null = null;
   const passthroughResponsesReasoningSummarySeen = new Set<string>();
   const streamStartedAt = Date.now();
+  const ttftTracker = createTtftTracker(streamStartedAt);
+  let traceEmitted = false;
 
   // Guard against duplicate [DONE] events — ensures exactly one per stream
   let doneSent = false;
@@ -689,6 +697,7 @@ export function createSSEStream(options: StreamOptions = {}) {
     if (!hasValuableContent(itemSanitized, sourceFormat)) {
       return;
     }
+    ttftTracker.recordContent();
 
     const isFinishChunk =
       itemSanitized.type === "message_delta" || itemSanitized.choices?.[0]?.finish_reason;
@@ -870,6 +879,12 @@ export function createSSEStream(options: StreamOptions = {}) {
 
       transform(chunk, controller) {
         if (streamTimedOut) return;
+        if (!traceEmitted && routingTraceCollector?.isEnabled()) {
+          routingTraceCollector.complete();
+          const traceComment = routingTraceCollector.formatAsSSEComments();
+          if (traceComment) controller.enqueue(encoder.encode(traceComment));
+          traceEmitted = true;
+        }
         lastChunkTime = Date.now();
         const text = decoder.decode(chunk, { stream: true });
         buffer += text;
@@ -1644,6 +1659,7 @@ export function createSSEStream(options: StreamOptions = {}) {
                 onComplete({
                   status: 200,
                   usage,
+                  ttft: ttftTracker.getTtft(),
                   responseBody,
                   providerPayload: providerPayloadCollector.build(
                     buildStreamSummaryFromEvents(
@@ -1727,6 +1743,7 @@ export function createSSEStream(options: StreamOptions = {}) {
               try {
                 onComplete({
                   status: err.status,
+                  ttft: ttftTracker.getTtft(),
                   usage: state?.usage,
                   responseBody: errorBody,
                   providerPayload: providerPayloadCollector.build(
@@ -1864,6 +1881,7 @@ export function createSSEStream(options: StreamOptions = {}) {
               };
               onComplete({
                 status: 200,
+                ttft: ttftTracker.getTtft(),
                 usage: state?.usage,
                 responseBody,
                 providerPayload: providerPayloadCollector.build(
@@ -1919,6 +1937,7 @@ export function createSSETransformStreamWithLogger(
     body,
     onComplete,
     onFailure,
+    routingTraceCollector: getActiveTraceCollector(),
   });
 }
 
@@ -1946,5 +1965,6 @@ export function createPassthroughStreamWithLogger(
     onComplete,
     onFailure,
     clientResponseFormat,
+    routingTraceCollector: getActiveTraceCollector(),
   });
 }

@@ -35,6 +35,18 @@ import {
 import { supportsToolCalling } from "./modelCapabilities.ts";
 import { getSessionConnection } from "./sessionManager.ts";
 import { getModelContextLimit } from "../../src/lib/modelCapabilities";
+import { filterByContextWindow } from "./routerly/prefilter/contextFilter";
+import {
+  getConversationModel,
+  recordConversationModel,
+} from "./routerly/memory/conversationMemory";
+import { RoutingTraceCollector } from "./routerly/trace/collector";
+
+let activeTraceCollector: RoutingTraceCollector | null = null;
+
+export function getActiveTraceCollector(): RoutingTraceCollector | null {
+  return activeTraceCollector;
+}
 import { getProviderConnections } from "../../src/lib/db/providers";
 import {
   getComboModelString,
@@ -824,6 +836,7 @@ async function buildAutoCandidates(targets, comboName) {
       const breakerStateRaw = getCircuitBreaker(provider)?.getStatus?.()?.state;
       const circuitBreakerState =
         breakerStateRaw === "OPEN" || breakerStateRaw === "HALF_OPEN" ? breakerStateRaw : "CLOSED";
+      const healthScore = getCircuitBreaker(provider)?.getHealthScore?.();
 
       return {
         stepId: target.stepId,
@@ -834,6 +847,7 @@ async function buildAutoCandidates(targets, comboName) {
         quotaRemaining: 100,
         quotaTotal: 100,
         circuitBreakerState,
+        healthScore,
         costPer1MTokens,
         p95LatencyMs,
         latencyStdDev,
@@ -1035,6 +1049,12 @@ export async function handleComboChat({
   signal,
 }) {
   const strategy = combo.strategy || "priority";
+  const traceCollector = new RoutingTraceCollector(
+    `combo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  );
+  activeTraceCollector = traceCollector;
+  traceCollector.addEvent("intake", { strategy, comboName: combo.name });
+
   const relayConfig =
     strategy === "context-relay" ? resolveContextRelayConfig(relayOptions?.config || null) : null;
 
@@ -1275,6 +1295,15 @@ export async function handleComboChat({
       }
     }
 
+    const prefilteredTargets = filterByContextWindow(eligibleTargets, body);
+    if (prefilteredTargets.length < eligibleTargets.length) {
+      log.info(
+        "COMBO",
+        `Auto strategy: filtered ${eligibleTargets.length - prefilteredTargets.length} candidates by context window`
+      );
+      eligibleTargets = prefilteredTargets;
+    }
+
     const prompt = extractPromptForIntent(body);
     const systemPrompt =
       typeof combo?.system_message === "string" ? combo.system_message : undefined;
@@ -1315,6 +1344,14 @@ export async function handleComboChat({
       if (lkgp) lastKnownGoodProvider = lkgp;
     } catch (err) {
       log.warn("COMBO", "Failed to retrieve Last Known Good Provider. This is non-fatal.", { err });
+    }
+
+    const convModel = getConversationModel(relayOptions?.sessionId || null);
+    if (convModel) {
+      lastKnownGoodProvider = convModel.provider;
+      traceCollector.addEvent("intake", {
+        conversationMemory: { model: convModel.model, provider: convModel.provider },
+      });
     }
 
     const candidates = await buildAutoCandidates(eligibleTargets, combo.name);
@@ -1380,6 +1417,13 @@ export async function handleComboChat({
         "COMBO",
         `Auto selection: ${selectedTarget?.modelStr || `${selectedProvider}/${selectedModel}`} | intent=${intent} task=${taskType} | strategy=${routingStrategy} | ${selectionReason}`
       );
+      traceCollector.addEvent("selection", {
+        provider: selectedProvider,
+        model: selectedModel,
+        reason: selectionReason,
+        candidateCount: candidates.length,
+        taskType,
+      });
     } else {
       log.warn("COMBO", "Auto strategy has no candidates, keeping default ordering");
     }
@@ -1555,6 +1599,8 @@ export async function handleComboChat({
         });
         recordedAttempts++;
 
+        recordConversationModel(relayOptions?.sessionId || "", modelStr, provider);
+
         // Context-relay intentionally splits responsibilities:
         // combo.ts decides whether a successful turn should generate a handoff,
         // while chat.ts injects the handoff after the real connectionId is resolved.
@@ -1708,6 +1754,12 @@ export async function handleComboChat({
       lastError = errorText || String(result.status);
       if (!lastStatus) lastStatus = result.status;
       if (i > 0) fallbackCount++;
+      traceCollector.addEvent("fallback", {
+        from: modelStr,
+        status: result.status,
+        reason: "upstream_error",
+        nextIndex: i + 1,
+      });
 
       if ((result.status === 429 || result.status === 503) && !exhaustedProviders.has(provider)) {
         log.info(

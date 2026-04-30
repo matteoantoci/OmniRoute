@@ -19,6 +19,7 @@ import {
   deleteCircuitBreakerState,
   deleteAllCircuitBreakerStates,
 } from "../../lib/db/domainState";
+import { BayesianHealthTracker } from "../../../open-sse/services/routerly/health/bayesian";
 
 const STATE = {
   CLOSED: "CLOSED",
@@ -48,6 +49,7 @@ export class CircuitBreaker {
   successCount: number;
   lastFailureTime: number | null;
   halfOpenAllowed: number;
+  private bayesianHealth: BayesianHealthTracker;
 
   constructor(name: string, options: CircuitBreakerOptions = {}) {
     this.name = name;
@@ -62,6 +64,7 @@ export class CircuitBreaker {
     this.successCount = 0;
     this.lastFailureTime = null;
     this.halfOpenAllowed = 0;
+    this.bayesianHealth = new BayesianHealthTracker();
 
     // Try to restore state from DB
     this._restoreFromDb();
@@ -186,6 +189,10 @@ export class CircuitBreaker {
     };
   }
 
+  getHealthScore(): number {
+    return this.bayesianHealth.getHealthScore();
+  }
+
   /**
    * Get remaining wait time before the breaker allows execution again.
    * @returns {number}
@@ -211,6 +218,7 @@ export class CircuitBreaker {
   // ─── Internal Methods ────────────────────────
 
   _onSuccess() {
+    this.bayesianHealth.recordSuccess();
     if (this.state === STATE.OPEN) {
       // Direct call from combo path: timeout elapsed and request succeeded
       // without going through execute(), so transition OPEN → CLOSED directly
@@ -230,6 +238,7 @@ export class CircuitBreaker {
   }
 
   _onFailure() {
+    this.bayesianHealth.recordFailure();
     this.failureCount++;
     this.lastFailureTime = Date.now();
 

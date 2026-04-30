@@ -152,18 +152,41 @@ API routes follow a consistent pattern: `Route → CORS preflight → Zod body v
 
 ---
 
-## Testing
+## Routerly Features (Local Additions)
 
-| What                    | Command                                                |
-| ----------------------- | ------------------------------------------------------ |
-| Unit tests              | `npm run test:unit`                                    |
-| Single file             | `node --import tsx/esm --test tests/unit/file.test.ts` |
-| Vitest (MCP, autoCombo) | `npm run test:vitest`                                  |
-| E2E (Playwright)        | `npm run test:e2e`                                     |
-| Protocol E2E (MCP+A2A)  | `npm run test:protocols:e2e`                           |
-| Ecosystem               | `npm run test:ecosystem`                               |
-| Coverage gate           | `npm run test:coverage` (60% min all metrics)          |
-| Coverage report         | `npm run coverage:report`                              |
+Locally-added routing improvements in `open-sse/services/routerly/`. Each feature is isolated for easy removal if upstream implements similar functionality.
+
+**Run tests:** `npm run test:routerly`
+
+**Discard all:** `git rm -r open-sse/services/routerly/` + remove imports from upstream files
+
+| Feature | Module | Env Var Toggle | Upstream Files Touched |
+|---------|--------|---------------|----------------------|
+| Policy abstention | `routerly/scoring/abstention` | `ROUTERLY_ABSTENTION` | `autoCombo/scoring.ts` |
+| TTFT measurement | `routerly/ttft/measure` | `ROUTERLY_TTFT` | `utils/stream.ts` |
+| Context pre-filter | `routerly/prefilter/contextFilter` | `ROUTERLY_CONTEXT_PREFILTER` | `services/combo.ts` |
+| Bayesian health | `routerly/health/bayesian` | `ROUTERLY_BAYESIAN_HEALTH` | `circuitBreaker.ts`, `autoCombo/scoring.ts`, `combo.ts` |
+| Routing trace | `routerly/trace/collector` | `ROUTERLY_ROUTING_TRACE` | `combo.ts`, `utils/stream.ts` |
+| Conversation memory | `routerly/memory/conversationMemory` | `ROUTERLY_CONVERSATION_MEMORY` | `combo.ts` |
+
+All env vars default to enabled (except `ROUTERLY_ROUTING_TRACE`). Set to `"false"` to disable.
+
+---
+
+## Testing Cheat Sheet
+
+| What                    | Command                                                 |
+| ----------------------- | ------------------------------------------------------- |
+| All tests               | `npm run test:all`                                      |
+| Unit tests              | `npm run test:unit`                                     |
+| Single file             | `node --import tsx/esm --test tests/unit/file.test.mjs` |
+| Vitest (MCP, autoCombo) | `npm run test:vitest`                                   |
+| Routerly features       | `npm run test:routerly`                                 |
+| E2E (Playwright)        | `npm run test:e2e`                                      |
+| Protocol E2E (MCP+A2A)  | `npm run test:protocols:e2e`                            |
+| Ecosystem               | `npm run test:ecosystem`                                |
+| Coverage gate           | `npm run test:coverage` (60% min all metrics)           |
+| Coverage report         | `npm run coverage:report`                               |
 
 **PR rule**: If you change production code in `src/`, `open-sse/`, `electron/`, or `bin/`, you must include or update tests in the same PR.
 

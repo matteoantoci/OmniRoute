@@ -1,3 +1,5 @@
+import { redistributeWeights } from "../routerly/scoring/abstention";
+
 /**
  * Auto-Combo Scoring Function
  *
@@ -56,6 +58,8 @@ export interface ProviderCandidate {
   accountTier?: "ultra" | "pro" | "standard" | "free";
   /** T10: Optional quota reset interval in seconds (shorter = higher priority when same quota) */
   quotaResetIntervalSecs?: number;
+  /** Bayesian health score (0-1) from circuit breaker, if available */
+  healthScore?: number;
 }
 
 export interface ScoredProvider {
@@ -129,11 +133,13 @@ export function calculateFactors(
   return {
     quota: Math.min(1, candidate.quotaRemaining / 100),
     health:
-      candidate.circuitBreakerState === "CLOSED"
-        ? 1.0
-        : candidate.circuitBreakerState === "HALF_OPEN"
-          ? 0.5
-          : 0.0,
+      candidate.healthScore != null
+        ? candidate.healthScore
+        : candidate.circuitBreakerState === "CLOSED"
+          ? 1.0
+          : candidate.circuitBreakerState === "HALF_OPEN"
+            ? 0.5
+            : 0.0,
     costInv: 1 - candidate.costPer1MTokens / maxCost,
     latencyInv: 1 - candidate.p95LatencyMs / maxLatency,
     taskFit: getTaskFitness(candidate.model, taskType),
@@ -151,13 +157,14 @@ export function scorePool(
   weights: ScoringWeights = DEFAULT_WEIGHTS,
   getTaskFitness: (model: string, taskType: string) => number = () => 0.5
 ): ScoredProvider[] {
+  const effectiveWeights = redistributeWeights(pool, weights);
   return pool
     .map((candidate) => {
       const factors = calculateFactors(candidate, pool, taskType, getTaskFitness);
       return {
         provider: candidate.provider,
         model: candidate.model,
-        score: calculateScore(factors, weights),
+        score: calculateScore(factors, effectiveWeights),
         factors,
       };
     })
