@@ -1,15 +1,26 @@
 const TTL_MS = 60 * 60 * 1000;
 const MAX_TURNS_PER_SESSION = 50;
 
+export type ComplexityTier = "simple" | "standard" | "complex" | "reasoning";
+
+const TIER_ORDER: Record<ComplexityTier, number> = {
+  simple: 0,
+  standard: 1,
+  complex: 2,
+  reasoning: 3,
+};
+
 type TurnRecord = {
   model: string;
   provider: string;
   timestamp: number;
+  complexityTier: ComplexityTier;
 };
 
 type SessionRecord = {
   turns: TurnRecord[];
   lastActive: number;
+  peakTier: ComplexityTier;
 };
 
 function isFeatureEnabled(): boolean {
@@ -25,7 +36,7 @@ function cleanup(sessionId: string): void {
 
   const cutoff = Date.now() - TTL_MS;
   record.turns = record.turns.filter((t) => t.timestamp > cutoff);
-  if (record.turns.length === 0) {
+  if (record.turns.length === 0 && record.peakTier === "simple") {
     sessions.delete(sessionId);
   }
 }
@@ -50,18 +61,24 @@ function maybeCleanup(): void {
 export function recordConversationModel(
   sessionId: string,
   model: string,
-  provider: string
+  provider: string,
+  tier?: ComplexityTier
 ): void {
   if (!isFeatureEnabled() || !sessionId) return;
   maybeCleanup();
 
   let record = sessions.get(sessionId);
   if (!record) {
-    record = { turns: [], lastActive: Date.now() };
+    record = { turns: [], lastActive: Date.now(), peakTier: "simple" };
     sessions.set(sessionId, record);
   }
 
-  record.turns.push({ model, provider, timestamp: Date.now() });
+  const effectiveTier = tier || "standard";
+  if (TIER_ORDER[effectiveTier] > TIER_ORDER[record.peakTier]) {
+    record.peakTier = effectiveTier;
+  }
+
+  record.turns.push({ model, provider, timestamp: Date.now(), complexityTier: effectiveTier });
   if (record.turns.length > MAX_TURNS_PER_SESSION) {
     record.turns = record.turns.slice(-MAX_TURNS_PER_SESSION);
   }
@@ -79,6 +96,36 @@ export function getConversationModel(
 
   const last = record.turns[record.turns.length - 1];
   return { model: last.model, provider: last.provider };
+}
+
+export function recordSessionTier(
+  sessionId: string,
+  tier: ComplexityTier
+): void {
+  if (!isFeatureEnabled() || !sessionId) return;
+  maybeCleanup();
+
+  let record = sessions.get(sessionId);
+  if (!record) {
+    record = { turns: [], lastActive: Date.now(), peakTier: "simple" };
+    sessions.set(sessionId, record);
+  }
+
+  if (TIER_ORDER[tier] > TIER_ORDER[record.peakTier]) {
+    record.peakTier = tier;
+  }
+  record.lastActive = Date.now();
+}
+
+export function getSessionTier(
+  sessionId: string | null | undefined
+): ComplexityTier | null {
+  if (!isFeatureEnabled() || !sessionId) return null;
+  cleanup(sessionId);
+
+  const record = sessions.get(sessionId);
+  if (!record) return null;
+  return record.peakTier;
 }
 
 export function getActiveSessionCount(): number {

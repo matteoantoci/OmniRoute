@@ -403,7 +403,8 @@ export function isCacheable(body, headers) {
     return false;
   }
   if (body.stream !== false) return false;
-  if ((body.temperature ?? 0) !== 0) return false;
+  const maxTemp = parseFloat(process.env.SEMANTIC_CACHE_MAX_TEMPERATURE || "0.3");
+  if ((body.temperature ?? 0) > maxTemp) return false;
   return true;
 }
 
@@ -416,20 +417,22 @@ export function isCacheableForRead(body, headers) {
   if ((getHeaderValue(headers, "x-omniroute-no-cache") || "").toLowerCase() === "true") {
     return false;
   }
-  if ((body.temperature ?? 0) !== 0) return false;
+  const maxTemp = parseFloat(process.env.SEMANTIC_CACHE_MAX_TEMPERATURE || "0.3");
+  if ((body.temperature ?? 0) > maxTemp) return false;
   return true;
 }
 
 /**
  * Check if a response should be stored in cache after completion.
  * Works for both streaming and non-streaming responses.
- * Requires explicit `temperature: 0` — omitted temperature is NOT cacheable
+ * Requires explicit `temperature <= maxThreshold` — omitted temperature is NOT cacheable
  * because the provider default may be non-deterministic.
  */
 export function isCacheableForWrite(body, headers) {
   if ((getHeaderValue(headers, "x-omniroute-no-cache") || "").toLowerCase() === "true") {
     return false;
   }
-  if (body.temperature !== 0) return false;
+  const maxTemp = parseFloat(process.env.SEMANTIC_CACHE_MAX_TEMPERATURE || "0.3");
+  if (typeof body.temperature !== "number" || body.temperature > maxTemp) return false;
   return true;
 }

@@ -33,6 +33,7 @@ import {
   type ScoringWeights,
 } from "./autoCombo/scoring.ts";
 import { supportsToolCalling } from "./modelCapabilities.ts";
+import { supportsVision } from "./modelCapabilities.ts";
 import { getSessionConnection } from "./sessionManager.ts";
 import { getModelContextLimit } from "../../src/lib/modelCapabilities";
 import { filterByContextWindow } from "./routerly/prefilter/contextFilter";
@@ -50,6 +51,10 @@ import {
 } from "./routerly/health/perModelHealth";
 import { recordTtft, getEstimatedTtft } from "./routerly/ttft/feedback";
 import { warmStartAdaptation, recordAdaptationDecision } from "./routerly/persistence/warmStart";
+import { detectContentSignals, contentSignalsToTaskType } from "./routerly/routing/contentSignals";
+import { deriveComplexityTier } from "./routerly/scoring/stickiness";
+import { getSessionTier } from "./routerly/memory/conversationMemory";
+import { optimizeContext } from "./routerly/optimization/contextOptimizer";
 
 let activeTraceCollector: RoutingTraceCollector | null = null;
 
@@ -1086,6 +1091,12 @@ export async function handleComboChat({
     "" // provider/model not yet known — resolved per-model in loop
   );
   body = agentBody;
+  // Proactive context optimization — lossless transforms before routing
+  const optimizationResult = optimizeContext(body);
+  if (optimizationResult.tokensSaved > 0) {
+    body = optimizationResult.body;
+    log.info("COMBO", `Context optimization: saved ~${optimizationResult.tokensSaved} tokens via [${optimizationResult.applied.join(", ")}]`);
+  }
   if (pinnedModel) {
     log.info("COMBO", `[#401] Context caching: pinned model=${pinnedModel}`);
   }
@@ -1298,6 +1309,7 @@ export async function handleComboChat({
     log.info("COMBO", `${strategy} with nested resolution: ${orderedTargets.length} total targets`);
   }
 
+  let sessionEffectiveTier: string | undefined;
   if (strategy === "auto") {
     const requestHasTools = Array.isArray(body?.tools) && body.tools.length > 0;
     let eligibleTargets = [...orderedTargets];
@@ -1330,6 +1342,17 @@ export async function handleComboChat({
     const intent = classifyWithConfig(prompt, intentConfig, systemPrompt);
     recordComboIntent(combo.name, intent);
     const taskType = mapIntentToTaskType(intent);
+
+    // Content signals: structural analysis overrides keyword-based intent
+    const contentSignals = detectContentSignals(body);
+    const contentTaskType = contentSignalsToTaskType(contentSignals);
+    const effectiveTaskType = contentTaskType || taskType;
+
+    // Vision filter — like tool filter, remove non-vision models when images present
+    if (contentSignals.vision) {
+      const visionFiltered = eligibleTargets.filter((t) => supportsVision(t.modelStr));
+      if (visionFiltered.length > 0) eligibleTargets = visionFiltered;
+    }
 
     const autoConfigSource = combo?.autoConfig || combo?.config?.auto || combo?.config || {};
     const routingStrategy =
@@ -1372,6 +1395,18 @@ export async function handleComboChat({
         conversationMemory: { model: convModel.model, provider: convModel.provider },
       });
     }
+    traceCollector.addEvent("intake", {
+      contentSignals: contentSignals.dominantSignal,
+      taskType: effectiveTaskType,
+    });
+
+    // Session escalation — upgrade-only tier policy
+    const currentTier = deriveComplexityTier(contentSignals);
+    const peakTier = getSessionTier(relayOptions?.sessionId || null);
+    sessionEffectiveTier = peakTier && peakTier !== "simple" &&
+      ["simple", "standard", "complex", "reasoning"].indexOf(peakTier) >
+      ["simple", "standard", "complex", "reasoning"].indexOf(currentTier)
+      ? peakTier : currentTier;
 
     const candidates = await buildAutoCandidates(eligibleTargets, combo.name);
     if (candidates.length > 0) {
@@ -1384,8 +1419,9 @@ export async function handleComboChat({
           const decision = selectWithStrategy(
             candidates,
             {
-              taskType,
+              taskType: effectiveTaskType,
               requestHasTools,
+              requestHasVision: contentSignals.vision,
               lastKnownGoodProvider,
               sessionId: relayOptions?.sessionId || undefined,
             },
@@ -1415,7 +1451,7 @@ export async function handleComboChat({
             explorationRate,
           },
           candidates,
-          taskType,
+          effectiveTaskType,
           undefined,
           relayOptions?.sessionId || undefined
         );
@@ -1424,7 +1460,7 @@ export async function handleComboChat({
         selectionReason = `score=${selection.score.toFixed(3)}${selection.isExploration ? " (exploration)" : ""}`;
       }
 
-      const scoredTargets = scoreAutoTargets(eligibleTargets, candidates, taskType, weights);
+      const scoredTargets = scoreAutoTargets(eligibleTargets, candidates, effectiveTaskType, weights);
       const rankedTargets = scoredTargets.map((entry) => entry.target);
       const selectedTarget =
         scoredTargets.find((entry) => {
@@ -1441,14 +1477,15 @@ export async function handleComboChat({
 
       log.info(
         "COMBO",
-        `Auto selection: ${selectedTarget?.modelStr || `${selectedProvider}/${selectedModel}`} | intent=${intent} task=${taskType} | strategy=${routingStrategy} | ${selectionReason}`
+        `Auto selection: ${selectedTarget?.modelStr || `${selectedProvider}/${selectedModel}`} | intent=${intent} task=${effectiveTaskType} | strategy=${routingStrategy} | ${selectionReason}`
       );
       traceCollector.addEvent("selection", {
         provider: selectedProvider,
         model: selectedModel,
         reason: selectionReason,
         candidateCount: candidates.length,
-        taskType,
+        taskType: effectiveTaskType,
+        contentSignals: contentSignals.dominantSignal,
       });
     } else {
       log.warn("COMBO", "Auto strategy has no candidates, keeping default ordering");
@@ -1625,7 +1662,7 @@ export async function handleComboChat({
         });
         recordedAttempts++;
 
-        recordConversationModel(relayOptions?.sessionId || "", modelStr, provider);
+        recordConversationModel(relayOptions?.sessionId || "", modelStr, provider, sessionEffectiveTier as any);
         recordProviderUsage(provider);
         recordModelSuccess(provider, parseModel(modelStr).model);
 

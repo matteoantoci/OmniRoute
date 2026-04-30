@@ -175,6 +175,10 @@ Locally-added routing improvements in `open-sse/services/routerly/`. Each featur
 | Enhanced stability      | _(inline in scoring.ts)_             | `ROUTERLY_ENHANCED_STABILITY`  | `autoCombo/scoring.ts`                                  |
 | TTFT feedback loop      | `routerly/ttft/feedback`             | `ROUTERLY_TTFT_FEEDBACK`       | `services/combo.ts`, `handlers/chatCore.ts`             |
 | Adaptation persistence  | `routerly/persistence/warmStart`     | `ROUTERLY_ADAPTATION`          | `autoCombo/engine.ts`, `services/combo.ts`              |
+| Content signal routing  | `routerly/routing/contentSignals`    | `ROUTERLY_CONTENT_SIGNALS`     | `autoCombo/taskFitness.ts`, `services/combo.ts`         |
+| Session escalation      | `routerly/memory/conversationMemory` | `ROUTERLY_CONVERSATION_MEMORY` | `services/combo.ts`, `scoring/stickiness.ts`            |
+| Context optimization    | `routerly/optimization/contextOptimizer` | `ROUTERLY_CONTEXT_OPTIMIZE` | `services/combo.ts`, `handlers/chatCore.ts`             |
+| Enhanced prompt caching | _(modifies existing semanticCache)_ | `SEMANTIC_CACHE_MAX_TEMPERATURE` | `src/lib/semanticCache.ts`                           |
 
 All env vars default to enabled (except `ROUTERLY_ROUTING_TRACE`). Set to `"false"` to disable.
 

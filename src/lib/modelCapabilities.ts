@@ -259,6 +259,12 @@ export function supportsReasoning(input: CapabilityInput): boolean {
   return getResolvedModelCapabilities(input).reasoning;
 }
 
+export function supportsVision(input: CapabilityInput): boolean {
+  if (typeof input === "string" && !String(input || "").trim()) return true;
+  const v = getResolvedModelCapabilities(input).supportsVision;
+  return v !== false;
+}
+
 export function capMaxOutputTokens(input: CapabilityInput, requested?: number): number {
   const cap = getResolvedModelCapabilities(input).maxOutputTokens;
   return requested ? Math.min(requested, cap) : cap;
