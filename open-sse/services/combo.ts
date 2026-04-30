@@ -8,8 +8,8 @@ import {
   checkFallbackError,
   formatRetryAfter,
   getRuntimeProviderProfile,
-  recordProviderFailure,
   isProviderFailureCode,
+  recordProviderFailure,
 } from "./accountFallback.ts";
 import { errorResponse, unavailableResponse } from "../utils/error.ts";
 import { recordComboIntent, recordComboRequest, getComboMetrics } from "./comboMetrics.ts";
@@ -129,7 +129,7 @@ function toTrimmedString(value): string | null {
  * 1. Body is valid JSON
  * 2. Has at least one choice with non-empty content or tool_calls
  */
-export async function validateResponseQuality(
+async function validateResponseQuality(
   response: Response,
   isStreaming: boolean,
   log: { warn?: (...args: unknown[]) => void }
@@ -163,7 +163,7 @@ export async function validateResponseQuality(
   try {
     json = JSON.parse(text);
   } catch {
-    if (text.startsWith("data:") || text.startsWith("event:")) return { valid: true };
+    if (text.startsWith("data:")) return { valid: true };
     return { valid: false, reason: "response is not valid JSON" };
   }
 
@@ -1449,12 +1449,19 @@ export async function handleComboChat({
   let globalAttempts = 0;
   let fallbackCount = 0;
   let recordedAttempts = 0;
+  const exhaustedProviders = new Set<string>();
 
   for (let i = 0; i < orderedTargets.length; i++) {
     const target = orderedTargets[i];
     const modelStr = target.modelStr;
     const provider = target.provider;
     const profile = await getRuntimeProviderProfile(provider);
+
+    if (exhaustedProviders.has(provider)) {
+      log.info("COMBO", `Skipping ${modelStr} (provider already returned 429/503)`);
+      if (i > 0) fallbackCount++;
+      continue;
+    }
 
     // Pre-check: skip models where all accounts are in cooldown
     if (isModelAvailable) {
@@ -1647,9 +1654,10 @@ export async function handleComboChat({
       const isStreamReadinessTimeout =
         result.status === 504 && isStreamReadinessTimeoutErrorBody(errorBody);
 
-      // Fix #1681: Status 499 means client disconnected — stop combo loop immediately.
-      // There is no point trying fallback models when nobody is listening.
-      if (result.status === 499) {
+      // 499 can mean either a genuine client disconnect or a request-deadline
+      // timeout (provider hung). Only stop the combo loop if the client is
+      // actually gone; otherwise treat it as a provider failure and try next.
+      if (result.status === 499 && signal?.aborted) {
         log.info("COMBO", `Client disconnected (499) during ${modelStr} — stopping combo loop`);
         recordComboRequest(combo.name, modelStr, {
           success: false,
@@ -1700,6 +1708,19 @@ export async function handleComboChat({
       lastError = errorText || String(result.status);
       if (!lastStatus) lastStatus = result.status;
       if (i > 0) fallbackCount++;
+
+      if ((result.status === 429 || result.status === 503) && !exhaustedProviders.has(provider)) {
+        log.info(
+          "COMBO",
+          `Provider ${provider} returned ${result.status}, skipping remaining targets`
+        );
+        exhaustedProviders.add(provider);
+      }
+
+      if (isProviderFailureCode(result.status)) {
+        recordProviderFailure(provider);
+      }
+
       log.warn("COMBO", `Model ${modelStr} failed, trying next`, { status: result.status });
 
       const fallbackWaitMs =
@@ -1961,7 +1982,7 @@ async function handleRoundRobinCombo({
           /* Clone failed */
         }
 
-        if (result.status === 499) {
+        if (result.status === 499 && signal?.aborted) {
           log.info(
             "COMBO-RR",
             `Client disconnected (499) during ${modelStr} — stopping combo loop`
@@ -2047,6 +2068,11 @@ async function handleRoundRobinCombo({
         lastError = errorText || String(result.status);
         if (!lastStatus) lastStatus = result.status;
         if (offset > 0) fallbackCount++;
+
+        if (isProviderFailureCode(result.status)) {
+          recordProviderFailure(provider);
+        }
+
         log.warn("COMBO-RR", `${modelStr} failed, trying next model`, { status: result.status });
 
         const fallbackWaitMs =
