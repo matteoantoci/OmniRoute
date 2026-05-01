@@ -26,7 +26,7 @@ import {
   createStructuredSSECollector,
   buildStreamSummaryFromEvents,
 } from "./streamPayloadCollector.ts";
-import { STREAM_IDLE_TIMEOUT_MS, STREAM_MAX_DURATION_MS, FETCH_BODY_TIMEOUT_MS, HTTP_STATUS } from "../config/constants.ts";
+import { STREAM_IDLE_TIMEOUT_MS, FETCH_BODY_TIMEOUT_MS, HTTP_STATUS } from "../config/constants.ts";
 import {
   sanitizeStreamingChunk,
   extractThinkingFromContent,
@@ -607,9 +607,6 @@ export function createSSEStream(options: StreamOptions = {}) {
   let lastChunkTime = Date.now();
   let idleTimer: ReturnType<typeof setInterval> | null = null;
   let streamTimedOut = false;
-  // Max duration state — hard cap on total stream lifetime
-  let maxDurationTimer: ReturnType<typeof setTimeout> | null = null;
-  let streamMaxDurationHit = false;
   const claudeEmptyResponseLifecycle = createClaudeEmptyResponseLifecycle();
   let pendingPassthroughEventLine: string | null = null;
   let pendingPassthroughEventEmitted = false;
@@ -618,13 +615,6 @@ export function createSSEStream(options: StreamOptions = {}) {
     if (idleTimer) {
       clearInterval(idleTimer);
       idleTimer = null;
-    }
-  };
-
-  const clearMaxDurationTimer = () => {
-    if (maxDurationTimer) {
-      clearTimeout(maxDurationTimer);
-      maxDurationTimer = null;
     }
   };
 
@@ -885,23 +875,10 @@ export function createSSEStream(options: StreamOptions = {}) {
             }
           }, 10_000);
         }
-        // Max duration cap — kills stream after STREAM_MAX_DURATION_MS regardless of activity
-        if (STREAM_MAX_DURATION_MS > 0) {
-          maxDurationTimer = setTimeout(() => {
-            if (streamTimedOut || streamMaxDurationHit) return;
-            streamMaxDurationHit = true;
-            clearMaxDurationTimer();
-            clearIdleTimer();
-            trackPendingRequest(model, provider, connectionId, false);
-            const msg = `[STREAM] Max duration exceeded: ${STREAM_MAX_DURATION_MS}ms (model: ${model || "unknown"})`;
-            console.warn(msg);
-            controller.error(new Error(msg));
-          }, STREAM_MAX_DURATION_MS);
-        }
       },
 
       transform(chunk, controller) {
-        if (streamTimedOut || streamMaxDurationHit) return;
+        if (streamTimedOut) return;
         if (!traceEmitted && routingTraceCollector?.isEnabled()) {
           routingTraceCollector.complete();
           const traceComment = routingTraceCollector.formatAsSSEComments();
@@ -1536,8 +1513,7 @@ export function createSSEStream(options: StreamOptions = {}) {
         if (idleTimer) {
           clearIdleTimer();
         }
-        clearMaxDurationTimer();
-        if (streamTimedOut || streamMaxDurationHit) {
+        if (streamTimedOut) {
           return;
         }
         trackPendingRequest(model, provider, connectionId, false);

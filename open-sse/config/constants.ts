@@ -17,10 +17,10 @@ export const FETCH_TIMEOUT_MS = upstreamTimeouts.fetchTimeoutMs;
 // idle for this duration. Override with STREAM_IDLE_TIMEOUT_MS env var.
 export const STREAM_IDLE_TIMEOUT_MS = upstreamTimeouts.streamIdleTimeoutMs;
 
-// Maximum total duration for any single SSE stream (ms).
-// Hard cap that kills streams regardless of activity. Prevents indefinitely
-// long streams and leaked pending-request counters. Override with STREAM_MAX_DURATION_MS env var.
-export const STREAM_MAX_DURATION_MS = upstreamTimeouts.streamMaxDurationMs;
+// Timeout for waiting for the first useful SSE event after headers arrive (ms).
+// Zombie HTTP 200 streams that never produce content fail fast at this threshold.
+// Override with STREAM_FIRST_CONTENT_TIMEOUT_MS env var.
+export const STREAM_FIRST_CONTENT_TIMEOUT_MS = upstreamTimeouts.streamFirstContentTimeoutMs;
 
 // Timeout for reading the full response body after headers arrive (ms).
 // Prevents indefinite hangs when the upstream sends headers but stalls on the body.
