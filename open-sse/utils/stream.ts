@@ -27,6 +27,7 @@ import {
   buildStreamSummaryFromEvents,
 } from "./streamPayloadCollector.ts";
 import { STREAM_IDLE_TIMEOUT_MS, FETCH_BODY_TIMEOUT_MS, HTTP_STATUS } from "../config/constants.ts";
+import { hasUsefulStreamContent } from "./streamReadiness.ts";
 import {
   sanitizeStreamingChunk,
   extractThinkingFromContent,
@@ -885,8 +886,10 @@ export function createSSEStream(options: StreamOptions = {}) {
           if (traceComment) controller.enqueue(encoder.encode(traceComment));
           traceEmitted = true;
         }
-        lastChunkTime = Date.now();
         const text = decoder.decode(chunk, { stream: true });
+        if (hasUsefulStreamContent(text)) {
+          lastChunkTime = Date.now();
+        }
         buffer += text;
         reqLogger?.appendProviderChunk?.(text);
 
