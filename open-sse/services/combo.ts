@@ -52,7 +52,7 @@ import { recordTtft, getEstimatedTtft } from "./routerly/ttft/feedback";
 import { warmStartAdaptation, recordAdaptationDecision } from "./routerly/persistence/warmStart";
 import { detectContentSignals, contentSignalsToTaskType } from "./routerly/routing/contentSignals";
 import { deriveComplexityTier } from "./routerly/scoring/stickiness";
-import { getSessionTier } from "./routerly/memory/conversationMemory";
+import { getSessionTier, type ComplexityTier } from "./routerly/memory/conversationMemory";
 import { optimizeContext } from "./routerly/optimization/contextOptimizer";
 
 let activeTraceCollector: RoutingTraceCollector | null = null;
@@ -73,6 +73,7 @@ import {
   resolveRequestRoutingTags,
   type RoutingTagMatchMode,
 } from "../../src/domain/tagRouter.ts";
+import { normalizeRoutingStrategy } from "../../src/shared/constants/routingStrategies.ts";
 
 // Status codes that should mark round-robin target semaphores as cooling down.
 const TRANSIENT_FOR_SEMAPHORE = [429, 502, 503, 504];
@@ -135,11 +136,11 @@ type ComboRuntimeStep =
       label: string | null;
     };
 
-function isRecord(value): value is Record<string, unknown> {
+function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-function toTrimmedString(value): string | null {
+function toTrimmedString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
@@ -655,17 +656,25 @@ function sortTargetsByUsage(targets: ResolvedComboTarget[], comboName: string) {
  */
 function sortModelsByContextSize(models) {
   const withContext = models.map((modelStr) => {
-    const parsed = parseModel(modelStr);
-    const provider = parsed.provider || parsed.providerAlias || "unknown";
-    const model = parsed.model || modelStr;
-    const limit = getModelContextLimit(provider, model);
-    return { modelStr, context: limit ?? 0 };
+    return { modelStr, context: getModelContextLimitForModelString(modelStr) ?? 0 };
   });
   withContext.sort((a, b) => b.context - a.context);
   return withContext.map((e) => e.modelStr);
 }
 
+function getModelContextLimitForModelString(modelStr: string) {
+  const parsed = parseModel(modelStr);
+  const provider = parsed.provider || parsed.providerAlias || "unknown";
+  const model = parsed.model || modelStr;
+  return getModelContextLimit(provider, model);
+}
+
 function sortTargetsByContextSize(targets: ResolvedComboTarget[]) {
+  const hasKnownContext = targets.some(
+    (target) => getModelContextLimitForModelString(target.modelStr) != null
+  );
+  if (!hasKnownContext) return targets;
+
   const orderedModels = sortModelsByContextSize(targets.map((target) => target.modelStr));
   const byModel = new Map<string, ResolvedComboTarget[]>();
   for (const target of targets) {
@@ -679,6 +688,38 @@ function sortTargetsByContextSize(targets: ResolvedComboTarget[]) {
       return queue?.shift() || null;
     })
     .filter((target): target is ResolvedComboTarget => target !== null);
+}
+
+function getP2CTargetScore(
+  target: ResolvedComboTarget,
+  metrics: ReturnType<typeof getComboMetrics>
+): number {
+  const breakerState = getCircuitBreaker(target.provider)?.getStatus?.()?.state;
+  if (breakerState === "OPEN") return -Infinity;
+  const modelMetric = metrics?.byModel?.[target.modelStr] || null;
+  const successRate = Number(modelMetric?.successRate);
+  const avgLatency = Number(modelMetric?.avgLatencyMs);
+  const successScore = Number.isFinite(successRate) ? successRate / 100 : 0.5;
+  const latencyScore =
+    Number.isFinite(avgLatency) && avgLatency > 0 ? 1 / Math.log10(avgLatency + 10) : 0.25;
+  const breakerPenalty = breakerState === "HALF_OPEN" ? 0.25 : 0;
+  return successScore + latencyScore - breakerPenalty;
+}
+
+function orderTargetsByPowerOfTwoChoices(targets: ResolvedComboTarget[], comboName: string) {
+  if (targets.length <= 1) return targets;
+  const metrics = getComboMetrics(comboName);
+  const firstIndex = Math.floor(Math.random() * targets.length);
+  let secondIndex = Math.floor(Math.random() * (targets.length - 1));
+  if (secondIndex >= firstIndex) secondIndex++;
+
+  const first = targets[firstIndex];
+  const second = targets[secondIndex];
+  const selectedIndex =
+    getP2CTargetScore(second, metrics) > getP2CTargetScore(first, metrics)
+      ? secondIndex
+      : firstIndex;
+  return [targets[selectedIndex], ...targets.filter((_, index) => index !== selectedIndex)];
 }
 
 function toTextContent(content) {
@@ -1070,7 +1111,7 @@ export async function handleComboChat({
   relayOptions,
   signal,
 }) {
-  const strategy = combo.strategy || "priority";
+  const strategy = normalizeRoutingStrategy(combo.strategy || "priority");
   warmStartAdaptation();
   const traceCollector = new RoutingTraceCollector(
     `combo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -1094,7 +1135,10 @@ export async function handleComboChat({
   const optimizationResult = optimizeContext(body);
   if (optimizationResult.tokensSaved > 0) {
     body = optimizationResult.body;
-    log.info("COMBO", `Context optimization: saved ~${optimizationResult.tokensSaved} tokens via [${optimizationResult.applied.join(", ")}]`);
+    log.info(
+      "COMBO",
+      `Context optimization: saved ~${optimizationResult.tokensSaved} tokens via [${optimizationResult.applied.join(", ")}]`
+    );
   }
   if (pinnedModel) {
     log.info("COMBO", `[#401] Context caching: pinned model=${pinnedModel}`);
@@ -1402,10 +1446,13 @@ export async function handleComboChat({
     // Session escalation — upgrade-only tier policy
     const currentTier = deriveComplexityTier(contentSignals);
     const peakTier = getSessionTier(relayOptions?.sessionId || null);
-    sessionEffectiveTier = peakTier && peakTier !== "simple" &&
+    sessionEffectiveTier =
+      peakTier &&
+      peakTier !== "simple" &&
       ["simple", "standard", "complex", "reasoning"].indexOf(peakTier) >
-      ["simple", "standard", "complex", "reasoning"].indexOf(currentTier)
-      ? peakTier : currentTier;
+        ["simple", "standard", "complex", "reasoning"].indexOf(currentTier)
+        ? peakTier
+        : currentTier;
 
     const candidates = await buildAutoCandidates(eligibleTargets, combo.name);
     if (candidates.length > 0) {
@@ -1459,7 +1506,12 @@ export async function handleComboChat({
         selectionReason = `score=${selection.score.toFixed(3)}${selection.isExploration ? " (exploration)" : ""}`;
       }
 
-      const scoredTargets = scoreAutoTargets(eligibleTargets, candidates, effectiveTaskType, weights);
+      const scoredTargets = scoreAutoTargets(
+        eligibleTargets,
+        candidates,
+        effectiveTaskType,
+        weights
+      );
       const rankedTargets = scoredTargets.map((entry) => entry.target);
       const selectedTarget =
         scoredTargets.find((entry) => {
@@ -1533,6 +1585,14 @@ export async function handleComboChat({
   } else if (strategy === "random") {
     orderedTargets = fisherYatesShuffle([...orderedTargets]);
     log.info("COMBO", `Random shuffle: ${orderedTargets.length} targets`);
+  } else if (strategy === "fill-first") {
+    log.info(
+      "COMBO",
+      `Fill-first ordering: preserving priority order (${orderedTargets.length} targets)`
+    );
+  } else if (strategy === "p2c") {
+    orderedTargets = orderTargetsByPowerOfTwoChoices(orderedTargets, combo.name);
+    log.info("COMBO", `Power-of-two-choices ordering: selected ${orderedTargets[0]?.modelStr}`);
   } else if (strategy === "least-used") {
     orderedTargets = sortTargetsByUsage(orderedTargets, combo.name);
     log.info("COMBO", `Least-used ordering: ${orderedTargets[0]?.modelStr} has fewest requests`);
@@ -1661,7 +1721,12 @@ export async function handleComboChat({
         });
         recordedAttempts++;
 
-        recordConversationModel(relayOptions?.sessionId || "", modelStr, provider, sessionEffectiveTier as any);
+        recordConversationModel(
+          relayOptions?.sessionId || "",
+          modelStr,
+          provider,
+          sessionEffectiveTier as ComplexityTier | undefined
+        );
         recordModelSuccess(provider, parseModel(modelStr).model);
 
         // Context-relay intentionally splits responsibilities:
@@ -1795,7 +1860,7 @@ export async function handleComboChat({
 
       // Trigger shared provider circuit breaker for 5xx errors and connection failures
       if (isProviderFailureCode(result.status)) {
-        recordProviderFailure(provider, log, target.connectionId);
+        recordProviderFailure(provider, log, target.connectionId, profile);
       }
 
       // Check if this is a transient error worth retrying on same model

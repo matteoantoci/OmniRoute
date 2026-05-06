@@ -139,6 +139,7 @@ type StreamOptions = {
   targetFormat?: string;
   sourceFormat?: string;
   clientResponseFormat?: string | null;
+  copilotCompatibleReasoning?: boolean;
   provider?: string | null;
   reqLogger?: StreamLogger | null;
   toolNameMap?: unknown;
@@ -156,6 +157,7 @@ type TranslateState = ReturnType<typeof initState> & {
   toolNameMap?: unknown;
   usage?: unknown;
   finishReason?: unknown;
+  copilotCompatibleReasoning?: boolean;
   /** Accumulated message content for call log response body */
   accumulatedContent?: string;
   upstreamError?: {
@@ -537,6 +539,7 @@ export function createSSEStream(options: StreamOptions = {}) {
     targetFormat,
     sourceFormat,
     clientResponseFormat = null,
+    copilotCompatibleReasoning = false,
     provider = null,
     reqLogger = null,
     toolNameMap = null,
@@ -570,6 +573,7 @@ export function createSSEStream(options: StreamOptions = {}) {
           ...(initState(sourceFormat) as TranslateState),
           provider,
           toolNameMap,
+          copilotCompatibleReasoning,
           accumulatedContent: "",
         }
       : null;
@@ -1925,7 +1929,8 @@ export function createSSETransformStreamWithLogger(
   body: unknown = null,
   onComplete: ((payload: StreamCompletePayload) => void) | null = null,
   apiKeyInfo: unknown = null,
-  onFailure: ((payload: StreamFailurePayload) => void | Promise<void>) | null = null
+  onFailure: ((payload: StreamFailurePayload) => void | Promise<void>) | null = null,
+  copilotCompatibleReasoning = false
 ) {
   return createSSEStream({
     mode: STREAM_MODE.TRANSLATE,
@@ -1941,6 +1946,7 @@ export function createSSETransformStreamWithLogger(
     onComplete,
     onFailure,
     routingTraceCollector: getActiveTraceCollector(),
+    copilotCompatibleReasoning,
   });
 }
 

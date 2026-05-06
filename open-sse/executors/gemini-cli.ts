@@ -120,11 +120,18 @@ export class GeminiCLIExecutor extends BaseExecutor {
   }
 
   buildUrl(model, stream, urlIndex = 0) {
+    void model;
+    void urlIndex;
     const action = stream ? "streamGenerateContent?alt=sse" : "generateContent";
     return `${this.config.baseUrl}:${action}`;
   }
 
-  buildHeaders(credentials, stream = true, clientHeaders?: Record<string, string> | null, model?: string) {
+  buildHeaders(
+    credentials,
+    stream = true,
+    clientHeaders?: Record<string, string> | null,
+    model?: string
+  ) {
     void clientHeaders;
     const raw = getGeminiCliHeaders(
       normalizeGeminiModel(model || "unknown"),
@@ -262,7 +269,12 @@ export class GeminiCLIExecutor extends BaseExecutor {
         console.warn(
           "[OmniRoute] loadCodeAssist returned no project — attempting managed project onboarding"
         );
-        projectId = await this.onboardManagedProject(accessToken, extractDefaultTierId(data), {}, currentModel);
+        projectId = await this.onboardManagedProject(
+          accessToken,
+          extractDefaultTierId(data),
+          {},
+          currentModel
+        );
       }
 
       if (!projectId) {
@@ -285,9 +297,7 @@ export class GeminiCLIExecutor extends BaseExecutor {
   async transformRequest(model, body, stream, credentials) {
     const currentModel = normalizeGeminiModel(model);
     const normalizedBody =
-      shouldStripCloudCodeThinking(this.provider, currentModel) &&
-      body &&
-      typeof body === "object"
+      shouldStripCloudCodeThinking(this.provider, currentModel) && body && typeof body === "object"
         ? stripCloudCodeThinkingConfig(body)
         : body;
 
